@@ -2,20 +2,21 @@ use anyhow::{Ok, Result};
 use std::env::args;
 use std::fs;
 use std::io::{BufReader, Read};
+use std::path::{Path, PathBuf};
 
 const MAX_FILESIZE: u64 = 2147483648;
 const MAX_ENTROPY_CHUNK: usize = 2560000;
 
-fn calculate_entropy(filename: &str) -> Result<f64, anyhow::Error> {
-    if fs::metadata(filename)?.is_dir() {
+fn calculate_entropy(path: &Path) -> Result<f64, anyhow::Error> {
+    if fs::metadata(path)?.is_dir() {
         return Err(anyhow::anyhow!("This is a directory!"));
     }
-    let file_length = fs::metadata(filename)?.len();
+    let file_length = fs::metadata(path)?.len();
     if file_length > MAX_FILESIZE {
         return Err(anyhow::anyhow!("File too large"));
     }
 
-    let mut reader = BufReader::new(fs::File::open(filename)?);
+    let mut reader = BufReader::new(fs::File::open(path)?);
     let mut buffer = vec![0; MAX_ENTROPY_CHUNK];
     let mut entropy = 0.0f64;
     loop {
@@ -41,13 +42,29 @@ fn calculate_entropy(filename: &str) -> Result<f64, anyhow::Error> {
     Ok(entropy)
 }
 
+fn collect_targets(parent_path: &PathBuf) -> Result<Vec<PathBuf>, anyhow::Error> {
+    let mut targets = vec![];
+    for entry in fs::read_dir(parent_path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_targets(&path)?;
+        } else {
+            targets.push(path);
+        }
+    }
+    Ok(targets)
+}
+
 fn main() -> Result<(), anyhow::Error> {
-    if let Some(filename) = args().nth(1) {
-        println!("Scanning {filename}");
-        let entropy = calculate_entropy(&filename)?;
-        println!("Entropy of {filename}: {entropy}");
+    if let Some(target) = args().nth(1) {
+        let targets = collect_targets(&PathBuf::from(&target))?;
+        for target in targets.iter() {
+            let entropy = calculate_entropy(&PathBuf::from(target))?;
+            println!("{target:?}: {entropy}");
+        }
         Ok(())
     } else {
-        panic!("No filename provided!")
+        panic!("No path provided!")
     }
 }
